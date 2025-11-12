@@ -8,16 +8,36 @@ const PNG = colorpng.png.PNG;
 pub fn main() !void {
     const allocator = std.heap.smp_allocator;
 
-    var png = try PNG.init(allocator, .{ .width = 32, .height = 32 });
+    var png = try PNG.init(allocator, .{ .width = 8, .height = 8 });
     defer png.deinit();
 
     try png.addChunk(Chunk{
-        .PLTE = .{ .data = .{ .palette = &[_]Color{.{ .r = 0x10, .g = 0xab, .b = 0xef }} } },
+        .PLTE = .{
+            .data = .{
+                .palette = &[_]Color{
+                    .{ .r = 0xeb, .g = 0x4f, .b = 0x34 }, // 0: red-orange
+                    .{ .r = 0x00, .g = 0x00, .b = 0x00 }, // 1: black
+                },
+            },
+        },
     });
 
-    try png.addChunk(Chunk{ .IDAT = .{ .data = .{
-        .image_data = &[_]u8{0} ** (32 * 33),
-    } } });
+    try png.addChunk(Chunk{
+        .IDAT = .{
+            .data = .{ //
+                .image_data = &[_]u8{
+                    0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 1, 1, 0, 0, 1, 1, 0,
+                    0, 0, 1, 1, 0, 0, 1, 1, 0,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0,
+                    0, 0, 1, 1, 0, 0, 1, 1, 0,
+                    0, 0, 1, 1, 1, 1, 1, 1, 0,
+                    0, 0, 1, 1, 1, 1, 1, 1, 0,
+                    0, 0, 0, 0, 0, 0, 0, 0, 0,
+                },
+            },
+        },
+    });
 
     const encoded = try png.encode();
     defer allocator.free(encoded);
