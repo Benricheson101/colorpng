@@ -36,6 +36,13 @@ pub fn main() !void {
         }),
     });
 
+    try png.addChunk(Chunk{
+        .tEXt = .init(.{ //
+            .keyword = "owo",
+            .str = ":3",
+        }),
+    });
+
     const encoded = try png.encode();
 
     try std.fs.cwd().writeFile(.{

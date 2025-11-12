@@ -1,7 +1,7 @@
 const std = @import("std");
-const Allocator = std.mem.Allocator;
-
 const chunk = @import("chunk.zig");
+
+const Allocator = std.mem.Allocator;
 const Chunk = chunk.Chunk;
 
 const ChunkArray = std.ArrayList(Chunk);
@@ -46,6 +46,7 @@ pub const PNG = struct {
                 .PLTE => |v| try v.encode(arena_alloc),
                 .IEND => |v| try v.encode(arena_alloc),
                 .IDAT => |v| try v.encode(arena_alloc),
+                .tEXt => |v| try v.encode(arena_alloc),
             };
 
             chunks[i] = buf;

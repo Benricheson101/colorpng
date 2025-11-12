@@ -13,6 +13,7 @@ pub const Chunk = union(enum) {
     PLTE: PLTE,
     IDAT: IDAT,
     IEND: IEND,
+    tEXt: tEXt,
 };
 
 // for some reason the backing integer has struct fields in reverse order
@@ -26,6 +27,7 @@ pub const IHDR = PNGChunk(.{ 'I', 'H', 'D', 'R' }, IHDRData);
 pub const PLTE = PNGChunk(.{ 'P', 'L', 'T', 'E' }, PLTEData);
 pub const IEND = PNGChunk(.{ 'I', 'E', 'N', 'D' }, IENDData);
 pub const IDAT = PNGChunk(.{ 'I', 'D', 'A', 'T' }, IDATData);
+pub const tEXt = PNGChunk(.{ 't', 'E', 'X', 't' }, TEXTData);
 
 /// A generic PNG chunk
 ///
@@ -163,6 +165,20 @@ pub const IDATData = struct {
     }
 };
 
+pub const TEXTData = struct {
+    keyword: []const u8,
+    str: []const u8,
+
+    fn encode(self: *const TEXTData, allocator: Allocator) ![]u8 {
+        const len = self.keyword.len + self.str.len + 1;
+        var buf = try allocator.alloc(u8, len);
+        @memset(buf[0..], 0);
+        @memcpy(buf[0..self.keyword.len], self.keyword[0..]);
+        @memcpy(buf[self.keyword.len + 1 .. len], self.str[0..self.str.len]);
+        return buf;
+    }
+};
+
 test "color packed struct" {
     const color = Color{ .r = 0x9c, .g = 0x9c, .b = 0xfc };
 
@@ -270,6 +286,33 @@ test "IEND" {
     const gpa = dbg_alloc.allocator();
 
     const encoded_data = try iend.IEND.encode(gpa);
+    defer gpa.free(encoded_data);
+
+    try expectEqualSlices(u8, data[0..], encoded_data[0..]);
+}
+
+test "tEXt" {
+    var text = Chunk{
+        .tEXt = .init(.{ //
+            .keyword = "hi",
+            .str = "hello",
+        }),
+    };
+
+    const data = [_]u8{
+        0, 0, 0, 8, // length
+        't', 'E', 'X', 't', // type
+        'h', 'i', // keyword
+        0, // null separator
+        'h', 'e', 'l', 'l', 'o', // str
+        17, 24, 126, 143, // crc32
+    };
+
+    var dbg_alloc = std.heap.DebugAllocator(.{}){};
+    defer _ = dbg_alloc.deinit();
+    const gpa = dbg_alloc.allocator();
+
+    const encoded_data = try text.tEXt.encode(gpa);
     defer gpa.free(encoded_data);
 
     try expectEqualSlices(u8, data[0..], encoded_data[0..]);
