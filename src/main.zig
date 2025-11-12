@@ -52,15 +52,26 @@ pub fn main() !void {
 
     try png.addChunk(Chunk{
         .tEXt = .init(.{ //
-            .keyword = "Description",
-            .str = ":3",
+            .keyword = "Software",
+            .str = "colorpng",
         }),
     });
 
-    try png.addChunk(Chunk{
-        .tEXt = .init(.{ //
-            .keyword = "Software",
-            .str = "colorpng",
+    try png.addChunk(.{
+        .iTXt = .init(.{
+            .keyword = "Description",
+            .language_tag = "en",
+            .translated_keyword = "Description",
+            .text = ":3c",
+        }),
+    });
+
+    try png.addChunk(.{
+        .iTXt = .init(.{
+            .keyword = "Description",
+            .language_tag = "fr",
+            .translated_keyword = "oui oui",
+            .text = "baguette",
         }),
     });
 

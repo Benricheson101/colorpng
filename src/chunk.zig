@@ -207,9 +207,9 @@ pub const TEXTData = struct {
 pub const ITXTData = struct {
     keyword: []const u8,
     /// 0=uncompressed, 1=compressed
-    compression_flag: u8,
+    compression_flag: u8 = 0,
     /// 0=uncompressed or zlib
-    compression_method: u8,
+    compression_method: u8 = 0,
     language_tag: []const u8,
     /// translation of [keyword] in [language_tag]
     translated_keyword: []const u8,
