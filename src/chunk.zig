@@ -3,6 +3,7 @@ const Allocator = std.mem.Allocator;
 const Crc32 = std.hash.Crc32;
 const zstd = std.compress.zstd;
 const expectEqualSlices = std.testing.expectEqualSlices;
+const expectEqual = std.testing.expectEqual;
 
 const c = @cImport({
     @cInclude("zlib.h");
@@ -30,6 +31,10 @@ pub const ChunkType = enum(u8) {
     IEND,
 };
 
+pub const DecoderContext = struct {
+    header: ?IHDRData = null,
+};
+
 // TODO: can I somehow make a "CUSTOM" type in the enum that takes any type?
 pub const Chunk = union(ChunkType) {
     IHDR: IHDR,
@@ -38,6 +43,37 @@ pub const Chunk = union(ChunkType) {
     PLTE: PLTE,
     IDAT: IDAT,
     IEND: IEND,
+
+    pub fn decode(buf: []u8, ctx: DecoderContext, allocator: Allocator) !Chunk {
+        const len_bytes = buf[0..4];
+        // const len: u32 = @intFromPtr(len_bytes);
+        const len = std.mem.readInt(u32, len_bytes, .big);
+
+        const typ = buf[4..8];
+        const data = buf[8 .. len + 8];
+        const crc_bytes = buf[len + 8 .. len + 12];
+        const crc = std.mem.readPackedInt(u32, crc_bytes, 0, .big);
+
+        const actual_crc = Crc32.hash(buf[4 .. len + 8]);
+        if (crc != actual_crc) {
+            return error.BadChecksum;
+        }
+
+        const thing = std.meta.stringToEnum(ChunkType, typ[0..]);
+        if (thing) |ty| {
+            return switch (ty) {
+                .IHDR => .{ .IHDR = try IHDR.decode(data, ctx, allocator) },
+                .PLTE => .{ .PLTE = try PLTE.decode(data, ctx, allocator) },
+                .IEND => .{ .IEND = try IEND.decode(data, ctx, allocator) },
+                .IDAT => .{ .IDAT = try IDAT.decode(data, ctx, allocator) },
+                else => return error.Unimplemented,
+            };
+        } else {
+            return error.BadChunkType;
+        }
+    }
+
+    // TODO: deinit
 };
 
 // for some reason the backing integer has struct fields in reverse order
@@ -45,6 +81,18 @@ pub const Color = packed struct(u24) {
     b: u8,
     g: u8,
     r: u8,
+
+    fn toBytes(self: Color) [3]u8 {
+        const color: u24 = @bitCast(self);
+        var buf: [3]u8 = undefined;
+        std.mem.writeInt(u24, buf[0..3], color, .big);
+        return buf;
+    }
+
+    fn fromBytes(buf: []const u8) Color {
+        const nr = std.mem.readInt(u24, buf[0..3], .big);
+        return @bitCast(nr);
+    }
 };
 
 pub const IHDR = PNGChunk(.{ 'I', 'H', 'D', 'R' }, IHDRData);
@@ -60,10 +108,11 @@ pub const iTXt = PNGChunk(.{ 'i', 'T', 'X', 't' }, ITXTData);
 /// 4 bytes: chunk type
 /// ? bytes: data
 /// 4 bytes: crc32
-fn PNGChunk(comptime chunk_type: [4]u8, comptime Data: type) type {
+fn PNGChunk(comptime chunk_typ: [4]u8, comptime Data: type) type {
     const BASE_CHUNK_SIZE: usize = 12;
 
     return struct {
+        pub const chunk_type = chunk_typ;
         data: Data,
 
         const Self = @This();
@@ -82,7 +131,7 @@ fn PNGChunk(comptime chunk_type: [4]u8, comptime Data: type) type {
             @memset(buf[0..], 0);
 
             std.mem.writeInt(u32, buf[0..4], @intCast(data.len), .big);
-            @memcpy(buf[4..8], chunk_type[0..4]);
+            @memcpy(buf[4..8], chunk_typ[0..4]);
 
             @memmove(buf[8 .. buf.len - 4], data[0..]);
 
@@ -90,6 +139,12 @@ fn PNGChunk(comptime chunk_type: [4]u8, comptime Data: type) type {
             std.mem.writePackedInt(u32, buf[buf.len - 4 ..], 0, crc, .big);
 
             return buf;
+        }
+
+        pub fn decode(data: []u8, ctx: DecoderContext, allocator: Allocator) !Self {
+            return Self{
+                .data = try Data.decode(data, ctx, allocator),
+            };
         }
     };
 }
@@ -138,6 +193,22 @@ pub const IHDRData = struct {
 
         return buf;
     }
+
+    fn decode(data: []u8, _: DecoderContext, _: Allocator) !@This() {
+        if (data.len != 13) {
+            return error.BadHdr;
+        }
+
+        return IHDRData{
+            .width = std.mem.readInt(u32, data[0..4], .big),
+            .height = std.mem.readInt(u32, data[4..8], .big),
+            .bit_depth = data[8],
+            .color_type = @enumFromInt(data[9]),
+            .compression_method = data[10],
+            .filter_method = data[11],
+            .interlace_method = data[12],
+        };
+    }
 };
 
 pub const PLTEData = struct {
@@ -154,11 +225,37 @@ pub const PLTEData = struct {
 
         return buf;
     }
+
+    fn decode(data: []u8, _: DecoderContext, allocator: Allocator) !@This() {
+        if (data.len % 3 != 0) {
+            return error.BadChunkData;
+        }
+
+        const n_colors = data.len / 3;
+        var colors = try allocator.alloc(Color, n_colors);
+
+        var n: usize = 0;
+        var i: usize = 0;
+        while (i < n_colors) : (n += 3) {
+            const byt = data[n .. n + 3];
+            const color = Color.fromBytes(byt);
+            colors[i] = color;
+            i += 1;
+        }
+
+        return PLTEData{
+            .palette = colors,
+        };
+    }
 };
 
 pub const IENDData = struct {
     fn encode(_: *const IENDData, _: Allocator) ![]u8 {
         return &[0]u8{};
+    }
+
+    fn decode(_: []u8, _: DecoderContext, _: Allocator) !@This() {
+        return IENDData{};
     }
 };
 
@@ -188,6 +285,29 @@ pub const IDATData = struct {
 
         return buf;
     }
+
+    fn decode(data: []u8, ctx: DecoderContext, allocator: Allocator) !@This() {
+        const hdr = ctx.header orelse @panic("IHDR must be decoded before IDAT");
+
+        const pixel_size: usize = if (hdr.color_type == .indexed) 1 else 3;
+        const max_buf_size = (hdr.width + 1) * hdr.height * pixel_size;
+
+        const buf = try allocator.alloc(u8, max_buf_size);
+
+        // return buf;
+
+        var decomp_size: c_ulong = max_buf_size;
+
+        const status = c.uncompress(buf.ptr, &decomp_size, data.ptr, data.len);
+
+        if (status == c.Z_BUF_ERROR) {
+            @panic("failed to uncompress image data");
+        }
+
+        return IDATData{
+            .image_data = buf[0..decomp_size],
+        };
+    }
 };
 
 pub const TEXTData = struct {
@@ -201,6 +321,10 @@ pub const TEXTData = struct {
         @memcpy(buf[0..self.keyword.len], self.keyword[0..]);
         @memcpy(buf[self.keyword.len + 1 .. len], self.str[0..self.str.len]);
         return buf;
+    }
+
+    fn decode(_: []u8, _: DecoderContext, _: Allocator) !@This() {
+        unreachable;
     }
 };
 
@@ -240,6 +364,10 @@ pub const ITXTData = struct {
 
         return buf;
     }
+
+    fn decode(_: []u8, _: DecoderContext, _: Allocator) !@This() {
+        unreachable;
+    }
 };
 
 test "color packed struct" {
@@ -252,7 +380,21 @@ test "color packed struct" {
     try std.testing.expectEqual(new_color, Color{ .r = 0x9c, .g = 0x9c, .b = 0xfc });
 }
 
-test "IHDR" {
+test "color toBytes" {
+    const color = Color{ .r = 0x9c, .g = 0x9c, .b = 0xfc };
+    const bytes = color.toBytes();
+
+    try expectEqualSlices(u8, &[_]u8{ 0x9c, 0x9c, 0xfc }, bytes[0..]);
+}
+
+test "color fromBytes" {
+    const color_code = [3]u8{ 0x9c, 0x9c, 0xfc };
+    const color = Color.fromBytes(color_code[0..]);
+
+    try expectEqual(Color{ .r = 0x9c, .g = 0x9c, .b = 0xfc }, color);
+}
+
+test "IHDR encode" {
     var hdr = Chunk{
         .IHDR = .init(.{ //
             .width = 16,
@@ -288,7 +430,37 @@ test "IHDR" {
     try expectEqualSlices(u8, data[0..], encoded_data[0..]);
 }
 
-test "PLTE" {
+test "IHDR decode" {
+    var data = [_]u8{
+        0, 0, 0, 13, // length
+        'I', 'H', 'D', 'R', // type
+        0, 0, 0, 16, // width
+        0, 0, 0, 16, // height
+        8, // bit depth
+        3, // color type
+        0, // compression method
+        0, // filter method
+        0, // interlace method
+        40, 45, 15, 83, // crc32
+    };
+
+    var dbg_alloc = std.heap.DebugAllocator(.{}){};
+    defer _ = dbg_alloc.deinit();
+    const gpa = dbg_alloc.allocator();
+
+    const ihdr = try Chunk.decode(&data, .{}, gpa);
+    const ihdr_data = ihdr.IHDR.data;
+
+    try expectEqual(ihdr_data.width, 16);
+    try expectEqual(ihdr_data.height, 16);
+    try expectEqual(ihdr_data.bit_depth, 8);
+    try expectEqual(ihdr_data.color_type, .indexed);
+    try expectEqual(ihdr_data.compression_method, 0);
+    try expectEqual(ihdr_data.filter_method, 0);
+    try expectEqual(ihdr_data.interlace_method, 0);
+}
+
+test "PLTE encode" {
     var plte = Chunk{
         .PLTE = .init(.{
             .palette = &[_]Color{
@@ -316,7 +488,28 @@ test "PLTE" {
     try expectEqualSlices(u8, data[0..], encoded_data[0..]);
 }
 
-test "IDAT" {
+test "PLTE decode" {
+    var data = [_]u8{
+        0, 0, 0, 6, // length
+        'P', 'L', 'T', 'E', // type
+        0xff, 0, 0xaa, // palette 0
+        0xcc, 0xee, 0x09, // palette 1
+        66, 225, 226, 128, // crc32
+    };
+
+    var dbg_alloc = std.heap.DebugAllocator(.{}){};
+    defer _ = dbg_alloc.deinit();
+    const gpa = dbg_alloc.allocator();
+
+    const chunk = try Chunk.decode(&data, .{}, gpa);
+    const palette = chunk.PLTE.data.palette;
+    defer gpa.free(palette);
+
+    try expectEqual(Color{ .r = 0xff, .g = 0x00, .b = 0xaa }, palette[0]);
+    try expectEqual(Color{ .r = 0xcc, .g = 0xee, .b = 0x09 }, palette[1]);
+}
+
+test "IDAT encode" {
     var idat = Chunk{
         .IDAT = .init(.{
             .image_data = &[_]u8{ 0, 1, 2, 3, 4 },
@@ -333,7 +526,45 @@ test "IDAT" {
     try expectEqualSlices(u8, "IDAT"[0..4], encoded_data[4..8]);
 }
 
-test "IEND" {
+test "IDAT decode" {
+    const ctx = DecoderContext{
+        .header = .{
+            .width = 9,
+            .height = 9,
+            .color_type = .indexed,
+        },
+    };
+
+    var data = [_]u8{
+        0, 0, 0, 30, // length
+        'I', 'D', 'A', 'T', // type
+        120, 156, 99, 96, 64, 0, 70, 70, 16, 102, 100, 128, 147, 40, 44, 6, 4, 15, 204, 197, 84, 7, 225, 193, 0, 0, 5, 99, 0, // data
+        30, 188, 189, 243, 225, // crc32
+    };
+
+    var dbg_alloc = std.heap.DebugAllocator(.{}){};
+    defer _ = dbg_alloc.deinit();
+    const gpa = dbg_alloc.allocator();
+
+    const chunk = try Chunk.decode(&data, ctx, gpa);
+    defer gpa.free(chunk.IDAT.data.image_data);
+
+    const expected_data = [_]u8{
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 1, 1, 0, 0, 1, 1, 1, 0,
+        0, 0, 1, 1, 1, 0, 0, 0, 1, 0,
+        0, 0, 1, 1, 1, 0, 0, 0, 1, 0,
+        0, 0, 0, 0, 0, 0, 1, 1, 1, 0,
+        0, 0, 1, 1, 0, 0, 0, 0, 1, 0,
+        0, 0, 1, 1, 1, 0, 0, 0, 1, 0,
+        0, 0, 1, 1, 1, 0, 1, 1, 1, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    };
+
+    try expectEqualSlices(u8, expected_data[0..], chunk.IDAT.data.image_data[0..]);
+}
+
+test "IEND encode" {
     var iend = Chunk{
         .IEND = .init(.{}),
     };
@@ -354,7 +585,7 @@ test "IEND" {
     try expectEqualSlices(u8, data[0..], encoded_data[0..]);
 }
 
-test "tEXt" {
+test "tEXt encode" {
     var text = Chunk{
         .tEXt = .init(.{ //
             .keyword = "hi",
@@ -381,7 +612,7 @@ test "tEXt" {
     try expectEqualSlices(u8, data[0..], encoded_data[0..]);
 }
 
-test "iTXt" {
+test "iTXt encode" {
     var itxt = Chunk{
         .iTXt = .init(.{ //
             .keyword = "hi",
