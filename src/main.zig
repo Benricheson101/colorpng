@@ -2,7 +2,7 @@ const std = @import("std");
 const colorpng = @import("colorpng");
 
 const Chunk = colorpng.chunk.Chunk;
-const Color = colorpng.chunk.Color;
+const Color = colorpng.color.Color;
 const PNG = colorpng.png.PNG;
 
 pub fn main() !void {
@@ -83,7 +83,9 @@ pub fn main() !void {
         }),
     });
 
-    // const encoded = try png.encode();
+    const encoded = try png.encode();
+
+    const decoded = try PNG.decode(allocator, encoded);
 
     // try std.fs.cwd().writeFile(.{
     //     .data = encoded[0..],
@@ -91,5 +93,6 @@ pub fn main() !void {
     //     .flags = .{},
     // });
 
-    // _ = try PNG.decode(allocator, encoded);
+
+    _ = decoded;
 }
