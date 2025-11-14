@@ -89,6 +89,12 @@ pub fn main() !void {
         }),
     });
 
+    try png.addChunk(.{
+        .sRGB = .init(.{
+            .intent = .relative_colorimetric,
+        }),
+    });
+
     const encoded = try png.encode();
 
     const decoded = try PNG.decode(allocator, encoded);
