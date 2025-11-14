@@ -6,6 +6,9 @@ pub const iend = @import("./chunks/IEND.zig");
 pub const idat = @import("./chunks/IDAT.zig");
 pub const text = @import("./chunks/tEXt.zig");
 pub const itxt = @import("./chunks/iTXt.zig");
+pub const trns = @import("./chunks/tRNS.zig");
+
+// pub const simple_ancillary = @import("./chunks/simple.zig");
 
 const Allocator = std.mem.Allocator;
 const Crc32 = std.hash.Crc32;
@@ -25,7 +28,7 @@ pub const ChunkType = enum(u8) {
     // gAMA,
     // cHRM,
     PLTE,
-    // tRNS,
+    tRNS,
     // hIST,
     // bKGD,
     IDAT,
@@ -42,12 +45,12 @@ pub const Chunk = union(ChunkType) {
     tEXt: text.tEXt,
     iTXt: itxt.iTXt,
     PLTE: plte.PLTE,
+    tRNS: trns.tRNS,
     IDAT: idat.IDAT,
     IEND: iend.IEND,
 
     pub fn decode(buf: []u8, ctx: DecoderContext, allocator: Allocator) !Chunk {
         const len_bytes = buf[0..4];
-        // const len: u32 = @intFromPtr(len_bytes);
         const len = std.mem.readInt(u32, len_bytes, .big);
 
         const typ = buf[4..8];
@@ -61,19 +64,20 @@ pub const Chunk = union(ChunkType) {
         }
 
         const thing = std.meta.stringToEnum(ChunkType, typ[0..]);
-        if (thing) |ty| {
-            return switch (ty) {
-                .IHDR => .{ .IHDR = try ihdr.IHDR.decode(data, ctx, allocator) },
-                .PLTE => .{ .PLTE = try plte.PLTE.decode(data, ctx, allocator) },
-                .IEND => .{ .IEND = try iend.IEND.decode(data, ctx, allocator) },
-                .IDAT => .{ .IDAT = try idat.IDAT.decode(data, ctx, allocator) },
-                .tEXt => .{ .tEXt = try text.tEXt.decode(data, ctx, allocator) },
-                .iTXt => .{ .iTXt = try itxt.iTXt.decode(data, ctx, allocator) },
-                // else => return error.Unimplemented,
-            };
-        } else {
-            return error.BadChunkType;
+        if (thing == null) {
+            return error.UnknownChunk;
         }
+
+        return switch (thing.?) {
+            .IHDR => .{ .IHDR = try ihdr.IHDR.decode(data, ctx, allocator) },
+            .PLTE => .{ .PLTE = try plte.PLTE.decode(data, ctx, allocator) },
+            .IEND => .{ .IEND = try iend.IEND.decode(data, ctx, allocator) },
+            .IDAT => .{ .IDAT = try idat.IDAT.decode(data, ctx, allocator) },
+            .tEXt => .{ .tEXt = try text.tEXt.decode(data, ctx, allocator) },
+            .iTXt => .{ .iTXt = try itxt.iTXt.decode(data, ctx, allocator) },
+            .tRNS => .{ .tRNS = try trns.tRNS.decode(data, ctx, allocator) },
+            // else => return error.Unimplemented,
+        };
     }
 
     // TODO: deinit
@@ -85,6 +89,7 @@ pub const Chunk = union(ChunkType) {
 /// 4 bytes: chunk type
 /// ? bytes: data
 /// 4 bytes: crc32
+
 pub fn PNGChunk(comptime chunk_typ: [4]u8, comptime Data: type) type {
     const BASE_CHUNK_SIZE: usize = 12;
 

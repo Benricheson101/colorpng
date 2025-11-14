@@ -83,16 +83,21 @@ pub fn main() !void {
         }),
     });
 
+    try png.addChunk(.{
+        .tRNS = .init(.{
+            .data = &[_]u8{255, 127},
+        }),
+    });
+
     const encoded = try png.encode();
 
     const decoded = try PNG.decode(allocator, encoded);
 
-    // try std.fs.cwd().writeFile(.{
-    //     .data = encoded[0..],
-    //     .sub_path = "output_image_test.png",
-    //     .flags = .{},
-    // });
-
+    try std.fs.cwd().writeFile(.{
+        .data = encoded[0..],
+        .sub_path = "output_image_test.png",
+        .flags = .{},
+    });
 
     _ = decoded;
 }

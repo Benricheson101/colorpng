@@ -47,8 +47,6 @@ pub const IDATData = struct {
 
         const buf = try allocator.alloc(u8, max_buf_size);
 
-        // return buf;
-
         var decomp_size: c_ulong = max_buf_size;
 
         const status = c.uncompress(buf.ptr, &decomp_size, data.ptr, data.len);
