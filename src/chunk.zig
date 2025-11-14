@@ -4,6 +4,13 @@ const Allocator = std.mem.Allocator;
 const Crc32 = std.hash.Crc32;
 
 // order is important here!
+
+/// PNG chunks
+///
+/// 4 bytes: data length
+/// 4 bytes: chunk type
+/// ? bytes: data
+/// 4 bytes: crc32
 pub const Chunk = makeChunks(.{
     .IHDR = .{ .data = @import("./chunks/IHDR.zig").IHDRData },
     .tEXt = .{ .data = @import("./chunks/tEXt.zig").TEXTData },
@@ -23,12 +30,6 @@ pub const DecoderContext = struct {
 
 // TODO: can I somehow make a "CUSTOM" type in the enum that takes any type?
 
-/// A generic PNG chunk
-///
-/// 4 bytes: data length
-/// 4 bytes: chunk type
-/// ? bytes: data
-/// 4 bytes: crc32
 fn makeChunks(comptime chunks: anytype) type {
     const fields = @typeInfo(@TypeOf(chunks)).@"struct".fields;
 
