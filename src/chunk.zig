@@ -8,6 +8,7 @@ pub const text = @import("./chunks/tEXt.zig");
 pub const itxt = @import("./chunks/iTXt.zig");
 pub const trns = @import("./chunks/tRNS.zig");
 pub const srgb = @import("./chunks/sRGB.zig");
+pub const bkgd = @import("./chunks/bKGD.zig");
 
 // pub const simple_ancillary = @import("./chunks/simple.zig");
 
@@ -31,7 +32,7 @@ pub const ChunkType = enum(u8) {
     PLTE,
     tRNS,
     // hIST,
-    // bKGD,
+    bKGD,
     IDAT,
     IEND,
 };
@@ -48,6 +49,7 @@ pub const Chunk = union(ChunkType) {
     sRGB: srgb.sRGB,
     PLTE: plte.PLTE,
     tRNS: trns.tRNS,
+    bKGD: bkgd.bKGD,
     IDAT: idat.IDAT,
     IEND: iend.IEND,
 
@@ -79,6 +81,7 @@ pub const Chunk = union(ChunkType) {
             .iTXt => .{ .iTXt = try itxt.iTXt.decode(data, ctx, allocator) },
             .tRNS => .{ .tRNS = try trns.tRNS.decode(data, ctx, allocator) },
             .sRGB => .{ .sRGB = try srgb.sRGB.decode(data, ctx, allocator) },
+            .bKGD => .{ .bKGD = try bkgd.bKGD.decode(data, ctx, allocator) },
             // else => return error.Unimplemented,
         };
     }

@@ -95,6 +95,12 @@ pub fn main() !void {
         }),
     });
 
+    try png.addChunk(.{
+        .bKGD = .init(.{
+            .data = &[_]u8{1},
+        }),
+    });
+
     const encoded = try png.encode();
 
     const decoded = try PNG.decode(allocator, encoded);
