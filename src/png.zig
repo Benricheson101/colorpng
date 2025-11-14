@@ -56,7 +56,7 @@ pub const PNG = struct {
 
         sortChunks(self.chunks.items);
 
-        var image_size: usize = 8 ;
+        var image_size: usize = 8;
         var chunks_added: usize = 0;
         for (self.chunks.items, 0..) |c, i| {
             if (c.data == Chunk.ChunkType.IEND) {
